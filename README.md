@@ -1,4 +1,8 @@
-# 🤖 SDLC Agents
+# DevCycle AI
+
+![DevCycle AI](assets/devcycle_ai_logo.png)
+
+> **DevCycle AI** — *Automating the Software Development Lifecycle through Agentic AI*
 
 An **offline, edge-ready, Streamlit** workbench that turns a plain-language
 instruction plus input/output expectations into a full software delivery, driven

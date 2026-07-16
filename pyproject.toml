@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sdlc-agents"
 version = "0.1.0"
-description = "Offline, edge-ready multi-agent SDLC workbench (Architect, Developer, Validation Engineer) with a Streamlit UI."
+description = "DevCycle AI — an offline, edge-ready multi-agent SDLC workbench (Architect, Developer, Validation Engineer) with a Streamlit UI."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
