@@ -49,7 +49,7 @@ def build_flow_script(spec: ProjectSpec, results: List[AgentResult]) -> List[Nar
             key="intro",
             title="Welcome",
             caption=(
-                f"Welcome to the S D L C Agents demo. In this flow, three agents turn the "
+                f"Welcome to the Dev Cycle A I demo. In this flow, three agents turn the "
                 f"instruction for {spec.title} into a complete software delivery, fully "
                 f"offline on this device."
             ),

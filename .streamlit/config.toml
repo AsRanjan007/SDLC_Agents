@@ -20,6 +20,10 @@ fastReruns = true
 [global]
 developmentMode = false
 
+# Dark theme to match the DevCycle AI logo aesthetic.
 [theme]
-base = "light"
-primaryColor = "#305496"
+base = "dark"
+primaryColor = "#7c5cff"
+backgroundColor = "#0a0e1a"
+secondaryBackgroundColor = "#141a2e"
+textColor = "#e8ebf5"

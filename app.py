@@ -17,12 +17,13 @@ os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
 import streamlit as st  # noqa: E402
 
 from sdlc_agents import __version__  # noqa: E402
+from sdlc_agents import branding  # noqa: E402
 from sdlc_agents.config import home_dir, load_config  # noqa: E402
 from sdlc_agents.llm import backend_status  # noqa: E402
 from sdlc_agents.ui import settings_view, workflow_view  # noqa: E402
 
 
-st.set_page_config(page_title="SDLC Agents", page_icon="🤖", layout="wide")
+st.set_page_config(page_title=branding.APP_NAME, page_icon=branding.page_icon(), layout="wide")
 
 
 def _init_config():
@@ -34,9 +35,20 @@ def _init_config():
 def main():
     config = _init_config()
 
+    # Top-left app logo (Streamlit >= 1.35). Falls back silently if unavailable.
+    logo = branding.logo()
+    if logo:
+        try:
+            st.logo(logo, icon_image=branding.icon() or logo)
+        except Exception:
+            pass
+
     with st.sidebar:
-        st.title("🤖 SDLC Agents")
-        st.caption(f"v{__version__} • offline • edge-ready")
+        if logo:
+            st.image(logo, use_container_width=True)
+        else:
+            st.title(f"♾️ {branding.APP_NAME}")
+        st.caption(f"v{__version__} • {branding.APP_SHORT_TAGLINE}")
         page = st.radio("Navigate", ["Workflow", "Settings", "About"], label_visibility="collapsed")
 
         st.divider()
@@ -57,7 +69,11 @@ def main():
 
 
 def _about():
-    st.header("About SDLC Agents")
+    logo = branding.logo()
+    if logo:
+        st.image(logo, use_container_width=True)
+    st.header(f"About {branding.APP_NAME}")
+    st.caption(branding.APP_TAGLINE)
     st.markdown(
         """
 This app runs a small **multi-agent software delivery flow** entirely on your
@@ -83,6 +99,12 @@ Configure everything under **Settings**; run flows under **Workflow**.
     )
     ok, msg = backend_status(st.session_state["config"])
     st.info(f"Current backend: {msg}")
+
+    poster = branding.poster()
+    if poster:
+        st.divider()
+        with st.expander("Brand"):
+            st.image(poster, use_container_width=True)
 
 
 if __name__ == "__main__":
