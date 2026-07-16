@@ -1,0 +1,6 @@
+# Full offline capability set for edge deployment.
+-r requirements.txt
+
+llama-cpp-python>=0.2.70   # local GGUF model inference (offline)
+pyttsx3>=2.90             # offline English TTS narration (needs system eSpeak)
+cryptography>=42.0        # AES-GCM artifact encryption at rest

@@ -1,0 +1,25 @@
+# Streamlit configuration hardened for offline / edge / corporate use.
+# Disables all outbound telemetry so the app makes NO external network calls.
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+# Bind to localhost by default; override with --server.address if needed.
+address = "127.0.0.1"
+port = 8501
+enableCORS = true
+enableXsrfProtection = true
+# Keep uploads modest for edge devices.
+maxUploadSize = 50
+
+[runner]
+fastReruns = true
+
+[global]
+developmentMode = false
+
+[theme]
+base = "light"
+primaryColor = "#305496"

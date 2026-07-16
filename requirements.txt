@@ -1,0 +1,15 @@
+# Core dependencies (small, offline-friendly).
+streamlit>=1.32
+openpyxl>=3.1
+pytest>=7.4
+
+# ---------------------------------------------------------------------------
+# Optional capabilities — install as needed for a richer edge deployment.
+# All are optional; the app runs end-to-end without them.
+#
+#   Local GGUF model brain:   pip install llama-cpp-python
+#   Offline voice narration:  pip install pyttsx3   (+ system eSpeak / eSpeak-NG)
+#   Strong AES-GCM at rest:   pip install cryptography
+#
+# Or install everything:      pip install -r requirements-full.txt
+# ---------------------------------------------------------------------------
