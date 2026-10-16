@@ -237,17 +237,16 @@ def render_diagrams(spec: ProjectSpec) -> str:
     )
 
 
-_MERMAID_RE = re.compile(r"```mermaid[^\n]*\n.*?```", re.DOTALL)
 _DIAGRAM_ORDER = ["overall", "component", "dataflow", "sequence", "usecase"]
 
 
-def _classify_diagram(preceding: str) -> Optional[str]:
-    low = preceding.lower()
+def _classify_diagram(heading: str) -> Optional[str]:
+    low = heading.lower()
     if "use case" in low or "use-case" in low or "usecase" in low:
         return "usecase"
     if "sequence" in low:
         return "sequence"
-    if "data flow" in low or "dataflow" in low or "data-flow" in low:
+    if "data flow" in low or "dataflow" in low or "data-flow" in low or "dfd" in low:
         return "dataflow"
     if "component" in low:
         return "component"
@@ -256,43 +255,80 @@ def _classify_diagram(preceding: str) -> Optional[str]:
     return None
 
 
+def _find_mermaid_ranges(lines: List[str]):
+    """Return (start, end) line ranges of every ```mermaid block.
+
+    Robust to malformed input: an unterminated fence runs to the next fence (or
+    end of document), so a missing closing ``` can never swallow later content.
+    """
+
+    ranges = []
+    i, n = 0, len(lines)
+    while i < n:
+        if lines[i].lstrip().startswith("```mermaid"):
+            j = i + 1
+            while j < n and not lines[j].lstrip().startswith("```"):
+                j += 1
+            end = j + 1 if j < n else n  # include the closing fence when present
+            ranges.append((i, end))
+            i = end
+        else:
+            i += 1
+    return ranges
+
+
 def sanitize_llm_diagrams(doc: str, spec: ProjectSpec) -> str:
     """Replace Mermaid blocks in an LLM-authored SAD with valid, known-good ones.
 
     LLMs frequently emit Mermaid that does not parse (unquoted labels with
     parentheses/colons, invented ``actor``/``rectangle`` keywords in flowcharts,
-    ...). Rather than trust them, every ``mermaid`` block is swapped — classified
-    by its preceding heading, falling back to document order — for the
-    deterministic block of the same type. Any diagram type that never appeared is
-    appended so the SAD still carries all five.
+    or even an unterminated code fence). Rather than trust them, this works
+    line-by-line: every ``mermaid`` block is located (even unterminated ones) and
+    swapped — classified by its nearest preceding heading, falling back to
+    document order — for the deterministic block of the same type. Any diagram
+    type that never appeared is appended. Because every block emitted here is
+    properly fenced, the result can never contain a dangling code fence.
     """
 
     blocks = _build_diagram_blocks(spec)
-    matches = list(_MERMAID_RE.finditer(doc))
-    if not matches:
+    lines = doc.split("\n")
+    ranges = _find_mermaid_ranges(lines)
+    if not ranges:
         return doc.rstrip() + "\n\n## Architecture Diagrams\n" + render_diagrams(spec)
 
+    def heading_before(start: int) -> str:
+        for k in range(start - 1, -1, -1):
+            s = lines[k].strip()
+            if s.startswith("#"):
+                return s
+        return ""
+
     used: set = set()
-    out: List[str] = []
-    last = 0
-    for idx, m in enumerate(matches):
-        kind = _classify_diagram(doc[max(0, m.start() - 400):m.start()])
+    kinds = []
+    for (start, _end) in ranges:
+        kind = _classify_diagram(heading_before(start))
         if kind is None or kind in used:
             kind = next((k for k in _DIAGRAM_ORDER if k not in used), None)
-        out.append(doc[last:m.start()])
-        if kind and blocks.get(kind):
-            out.append(blocks[kind].rstrip("\n"))
+        kinds.append(kind)
+        if kind:
             used.add(kind)
+
+    out: List[str] = []
+    cursor = 0
+    for (start, end), kind in zip(ranges, kinds):
+        out.extend(lines[cursor:start])
+        if kind and blocks.get(kind):
+            out.extend(blocks[kind].rstrip("\n").split("\n"))
         else:
-            out.append(m.group(0))
-        last = m.end()
-    out.append(doc[last:])
-    result = "".join(out)
+            out.extend(lines[start:end])
+        cursor = end
+    out.extend(lines[cursor:])
+    result = "\n".join(out)
 
     missing = [k for k in _DIAGRAM_ORDER if k not in used]
     if missing:
-        extra = "\n".join(blocks[k] for k in missing)
-        result = result.rstrip() + "\n\n### Additional Diagrams\n" + extra
+        extra = "\n".join(blocks[k].rstrip("\n") for k in missing)
+        result = result.rstrip() + "\n\n### Additional Diagrams\n\n" + extra + "\n"
     return result
 
 
