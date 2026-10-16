@@ -47,6 +47,12 @@ class OpenAICompatBackend(LLMBackend):
         self.cfg = cfg
         self.proxy = proxy or ProxyConfig()
 
+    @property
+    def label(self) -> str:
+        netloc = urlparse(self.cfg.base_url).netloc or self.cfg.base_url
+        model = self.cfg.model or "model"
+        return f"{model} @ {netloc}"
+
     def _endpoint(self) -> str:
         base = self.cfg.base_url.rstrip("/")
         return f"{base}/chat/completions"

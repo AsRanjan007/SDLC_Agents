@@ -149,6 +149,8 @@ class AppConfig:
     target_language: str = "python"
     # Unit-test framework id for the target language ("auto" -> language default).
     test_framework: str = "auto"
+    # IANA timezone for document timestamps (empty -> system local time).
+    timezone: str = ""
     llama_cpp: LlamaCppConfig = field(default_factory=LlamaCppConfig)
     openai_compat: OpenAICompatConfig = field(default_factory=OpenAICompatConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
@@ -183,6 +185,7 @@ class AppConfig:
             backend=data.get("backend", "offline"),
             target_language=data.get("target_language", "python"),
             test_framework=data.get("test_framework", "auto"),
+            timezone=data.get("timezone", ""),
             llama_cpp=sub(LlamaCppConfig, "llama_cpp"),
             openai_compat=sub(OpenAICompatConfig, "openai_compat"),
             proxy=sub(ProxyConfig, "proxy"),

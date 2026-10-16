@@ -73,8 +73,11 @@ reading code.
   execute when the toolchain (`cargo`, `mvn`, `gradle`, `cmake`) is installed and
   are reported as *skipped* (never a hard failure) when it is not.
 - **Excel validation report** with sheets: `Summary`, `Functional`,
-  `NonFunctional`, `Architecture`, `TestResults`, `CodeQuality` (colour-coded
-  PASS / PARTIAL / FAIL).
+  `NonFunctional`, `Architecture`, `TestResults`, `CodeQuality`, and **`DevMetrics`**
+  (the Developer agent's build/test metrics) — colour-coded PASS / PARTIAL / FAIL.
+- **Correct, timezone-aware timestamps** in every document (set the timezone in
+  **Settings** when the app runs in a UTC container), and reports name the actual
+  **model/endpoint** (e.g. `gemma4:e4b @ 127.0.0.1:11434`) rather than a backend id.
 - **Confidential by default**: artifacts stored locally with owner-only
   permissions, plus **optional at-rest encryption** (AES-GCM, or a built-in
   fallback cipher when `cryptography` isn't installed).

@@ -47,3 +47,9 @@ class LLMBackend(abc.ABC):
 
     def describe(self) -> str:
         return self.name
+
+    @property
+    def label(self) -> str:
+        """Human-friendly identifier for reports (model/endpoint, not the id)."""
+
+        return self.name

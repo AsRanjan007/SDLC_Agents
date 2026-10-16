@@ -99,7 +99,7 @@ class DeveloperAgent(BaseAgent):
             parsed = self._parse_file_blocks(text)
             if self._llm_output_valid(spec, parsed):
                 chosen = self._ensure_runnable(parsed, spec, profile, framework)
-                code_source = f"LLM ({self.llm.name})"
+                code_source = f"LLM ({self._llm_label()})"
                 used_llm = True
 
         # Add design-ID banners to the code and 'Covers:' links to the tests,
@@ -239,9 +239,10 @@ def _clean_code(workspace: Path, code_artifacts: List[Artifact]) -> None:
 
 def _render_build_report(spec, language, framework, code_artifacts, test_summary,
                          code_source, findings, coverage, design, lang) -> str:
+    from ..util import now_str
     ts = test_summary or {}
     files = "\n".join(f"- `{a.path}`" for a in code_artifacts)
-    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = now_str()
     detail = str(ts.get("detail", "")).strip()
     detail_block = f"\n\n```\n{detail[:1500]}\n```" if detail else ""
     head = f"""# Developer Build & Validation Report
