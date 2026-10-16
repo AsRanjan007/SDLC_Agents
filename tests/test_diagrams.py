@@ -132,3 +132,36 @@ def test_sanitizer_appends_suite_when_no_mermaid_present():
     fixed = offline_engine.sanitize_llm_diagrams(doc, _spec())
     assert fixed.count("```mermaid") == 5
     assert "## Architecture Diagrams" in fixed
+
+
+# An LLM SAD where the data-flow block is UNTERMINATED (missing closing ```),
+# which previously let the appended "### Additional Diagrams" be swallowed into a
+# Mermaid block (the 7.4 sequence parse error seen in the app).
+_UNCLOSED_LLM_SAD = """# SAD
+
+### 7.3 Data Flow Diagram (DFD)
+```mermaid
+graph TD
+    A[Raw Input: (A, Op, B)] --> VE
+    VE-->>DM
+
+### 7.4 Sequence Diagram
+Some trailing prose with no diagram block.
+"""
+
+
+def _fences_balanced(text: str) -> bool:
+    return sum(1 for ln in text.split("\n") if ln.lstrip().startswith("```")) % 2 == 0
+
+
+def test_sanitizer_handles_unterminated_mermaid_fence():
+    fixed = offline_engine.sanitize_llm_diagrams(_UNCLOSED_LLM_SAD, _spec())
+    # Code fences are balanced — no dangling ```mermaid opener.
+    assert _fences_balanced(fixed)
+    # The appended heading is NOT swallowed inside a mermaid block.
+    for block in __import__("re").findall(r"```mermaid.*?```", fixed, flags=16):
+        assert "Additional Diagrams" not in block
+        assert "###" not in block
+    # All five diagram types are present and valid.
+    assert fixed.count("```mermaid") == 5
+    assert "sequenceDiagram" in fixed
