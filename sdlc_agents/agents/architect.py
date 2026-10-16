@@ -23,12 +23,20 @@ class ArchitectAgent(BaseAgent):
     agent_id = "architect"
     role_title = "Software Architect"
 
+    def _arch_cfg(self):
+        agents = getattr(self.config, "agents", None)
+        return getattr(agents, "architect", None)
+
     def run(self, spec: ProjectSpec, prior: List[AgentResult], ctx: RunContext) -> AgentResult:
+        arch = self._arch_cfg()
+        framework = self._framework(spec)
         doc = ""
         source = "offline engine"
         if self._use_llm():
             prompt = (
                 self._context_block(spec)
+                + f"The target language is {self._target_language(spec)} and the "
+                f"unit-test framework is {framework.display}. "
                 + "Write the full Software Architecture Document in Markdown now."
             )
             doc = self._generate(_SYSTEM, prompt).strip()
@@ -37,7 +45,14 @@ class ArchitectAgent(BaseAgent):
             else:
                 doc = ""  # too thin -> fall back
         if not doc:
-            doc = offline_engine.render_architecture_document(spec)
+            doc = offline_engine.render_architecture_document(
+                spec,
+                framework_display=framework.display,
+                detail_level=getattr(arch, "detail_level", "standard"),
+                include_diagrams=getattr(arch, "include_diagrams", True),
+                include_risks=getattr(arch, "include_risks", True),
+                include_adrs=getattr(arch, "include_adrs", True),
+            )
 
         artifact = Artifact(
             path="docs/architecture/Software_Architecture_Document.md",

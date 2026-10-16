@@ -28,14 +28,36 @@ reading code.
 
 - **Three-agent SDLC pipeline** with dependency-ordered orchestration and live
   progress streaming.
+- **Multi-language code generation** — choose the target language and the app
+  generates idiomatic source, tests and a build manifest for it:
+
+  | Language | Default unit-test framework | Alternatives | Build manifest |
+  |----------|-----------------------------|--------------|----------------|
+  | **Python** | pytest | unittest | `pyproject.toml` |
+  | **Rust** | `cargo test` (built-in) | — | `Cargo.toml` |
+  | **Java** | JUnit 5 | JUnit 4, TestNG | `pom.xml` |
+  | **Kotlin** | Kotest | JUnit 5 | `build.gradle.kts` |
+  | **C** | GoogleTest | — | `CMakeLists.txt` |
+  | **C++** | GoogleTest | Catch2 | `CMakeLists.txt` |
+
+- **Per-agent configuration** — each agent has its own options that steer what it
+  produces and how it validates:
+  - *Architect*: document detail level (brief / standard / detailed), context
+    diagrams, decision records (ADRs), risk register.
+  - *Developer*: generate unit tests, integration tests, build manifest, and
+    whether to execute the suite after generating.
+  - *Validation Engineer*: independently re-run tests, static security scan,
+    test:code coverage ratio, and whether to emit the Excel workbook.
 - **Pluggable "brain"** configured in **Settings**:
   - **Local GGUF model** via `llama-cpp-python` (recommended offline brain) — no
     network, model downloaded once out of band.
   - **Local OpenAI-compatible endpoint** (Ollama / LM Studio / vLLM), proxy-aware.
   - **Deterministic offline engine** — zero model, zero network; the full flow
     (docs, code, tests, reports, narration) still works out of the box.
-- **Real, runnable output**: the generated Python compiles and its tests are
-  actually executed; the Validation Engineer re-runs them and records results.
+- **Real, runnable output**: generated projects are standard, idiomatic projects.
+  Python tests run in-process on any device; for the other languages the tests
+  execute when the toolchain (`cargo`, `mvn`, `gradle`, `cmake`) is installed and
+  are reported as *skipped* (never a hard failure) when it is not.
 - **Excel validation report** with sheets: `Summary`, `Functional`,
   `NonFunctional`, `Architecture`, `TestResults`, `CodeQuality` (colour-coded
   PASS / PARTIAL / FAIL).
@@ -73,12 +95,16 @@ input/output expectations, choose the agents, and click **Run agentic flow**.
 1. **Agent LLM connection** — pick `Offline engine`, `Local GGUF model`, or a
    `Local OpenAI-compatible endpoint`. See [`models/README.md`](models/README.md)
    for recommended small GGUF models.
-2. **Generation parameters** — temperature, max tokens, target language.
-3. **Corporate proxy** — used *only* by the optional network endpoint; the core
+2. **Generation parameters** — temperature, max tokens.
+3. **Target language & unit-test framework** — choose from Python, C, C++, Java,
+   Rust, Kotlin, and the unit-test framework for that language.
+4. **Agent configuration** — per-agent options for the Architect, Developer and
+   Validation Engineer (see *Per-agent configuration* above).
+5. **Corporate proxy** — used *only* by the optional network endpoint; the core
    flow never needs it.
-4. **Security & confidentiality** — `Offline-only mode` (hard-blocks all network
+6. **Security & confidentiality** — `Offline-only mode` (hard-blocks all network
    backends) and `Encrypt artifacts at rest`.
-5. **Demo narration** — enable/disable offline English audio, rate, volume, voice.
+7. **Demo narration** — enable/disable offline English audio, rate, volume, voice.
 
 Settings persist locally as JSON under `SDLC_AGENTS_HOME` (default
 `~/.sdlc_agents`, `0700`). Relocate everything (config + artifacts) to an
@@ -110,15 +136,17 @@ export SDLC_AGENTS_HOME=/secure/volume/.sdlc_agents
 ```
 app.py                     Streamlit entrypoint
 sdlc_agents/
-  config.py                Local JSON config (LLM, proxy, security, audio)
+  config.py                Local JSON config (LLM, language, agents, proxy, security, audio)
+  languages.py             Supported languages + per-language test frameworks
   analysis.py              Requirement analysis + role/task/prompt planning
   types.py                 Artifact / AgentResult / RunContext
-  testrunner.py            Executes generated tests (pytest + fallback)
+  testrunner.py            Executes generated tests (pytest in-proc; cargo/mvn/gradle/ctest)
+  codegen/                 Per-language code generators (python/rust/java/kotlin/c/cpp)
   llm/
     base.py factory.py     Backend interface + selection
     llama_cpp_backend.py   Local GGUF (offline)
     openai_compat_backend.py  Local OpenAI-compatible endpoint (proxy-aware)
-    offline_engine.py      Deterministic artifact renderer (no model/network)
+    offline_engine.py      Deterministic doc/scaffold renderer (no model/network)
   agents/
     architect.py developer.py validation_engineer.py
     orchestrator.py        Pipeline + narration
@@ -142,8 +170,10 @@ python -m pytest -q
 ```
 
 The test suite exercises requirement analysis, the offline engine (asserting the
-generated code is valid Python and its tests pass), the Excel report, artifact
-encryption, and a full end-to-end offline orchestration run.
+generated code is valid Python and its tests pass), the language registry and
+per-language code generators, the extended configuration model, the Excel
+report, artifact encryption, and full end-to-end offline orchestration runs for
+every supported language.
 
 ---
 

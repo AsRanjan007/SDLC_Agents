@@ -10,6 +10,7 @@ import streamlit as st
 from ..agents import AGENT_LABELS, AGENT_ORDER, Orchestrator, analyze_only
 from ..analysis import plan_agents
 from ..config import AppConfig
+from ..languages import get_language, resolve_framework
 from ..llm import backend_status
 
 
@@ -62,8 +63,12 @@ def render(config: AppConfig) -> None:
     if instruction.strip():
         with st.expander("🔎 Preview: generated roles, tasks & prompts for each agent"):
             spec = analyze_only(config, instruction, input_exp, output_exp)
-            st.caption(f"Detected operations: {', '.join(spec.operations)}")
-            for plan in plan_agents(spec):
+            fw = resolve_framework(config.target_language, config.test_framework)
+            st.caption(
+                f"Language: {get_language(config.target_language).display} • "
+                f"Unit tests: {fw.display} • Detected operations: {', '.join(spec.operations)}"
+            )
+            for plan in plan_agents(spec, framework_display=fw.display):
                 if plan.agent_id not in selected:
                     continue
                 st.markdown(f"**{plan.role_title}** — {plan.role_description}")

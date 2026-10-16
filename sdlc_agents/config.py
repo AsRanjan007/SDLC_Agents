@@ -84,6 +84,45 @@ class GenerationConfig:
 
 
 @dataclass
+class ArchitectConfig:
+    """Controls what the Software Architect agent produces."""
+
+    detail_level: str = "standard"  # "brief" | "standard" | "detailed"
+    include_diagrams: bool = True
+    include_risks: bool = True
+    include_adrs: bool = True  # architecture decision records
+
+
+@dataclass
+class DeveloperConfig:
+    """Controls what the Software Developer agent produces."""
+
+    generate_unit_tests: bool = True
+    generate_integration_tests: bool = True
+    include_build_manifest: bool = True  # Cargo.toml / pom.xml / CMakeLists.txt ...
+    run_tests: bool = True  # execute tests when a toolchain is available
+
+
+@dataclass
+class ValidationConfig:
+    """Controls how the Validation Engineer agent verifies the delivery."""
+
+    run_tests: bool = True
+    static_security_scan: bool = True  # scan for network imports / unsafe calls
+    check_coverage: bool = True
+    excel_report: bool = True
+
+
+@dataclass
+class AgentsConfig:
+    """Per-agent configuration grouped under one object."""
+
+    architect: ArchitectConfig = field(default_factory=ArchitectConfig)
+    developer: DeveloperConfig = field(default_factory=DeveloperConfig)
+    validation: ValidationConfig = field(default_factory=ValidationConfig)
+
+
+@dataclass
 class SecurityConfig:
     """Confidentiality / integrity controls for generated artifacts."""
 
@@ -108,10 +147,13 @@ class AppConfig:
     # backend: "offline" | "llama_cpp" | "openai_compat"
     backend: str = "offline"
     target_language: str = "python"
+    # Unit-test framework id for the target language ("auto" -> language default).
+    test_framework: str = "auto"
     llama_cpp: LlamaCppConfig = field(default_factory=LlamaCppConfig)
     openai_compat: OpenAICompatConfig = field(default_factory=OpenAICompatConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
 
@@ -122,18 +164,30 @@ class AppConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
-        def sub(cfg_cls, key):
-            raw = data.get(key, {}) or {}
+        def build(cfg_cls, raw):
+            raw = raw or {}
             fields = {f.name for f in dataclasses.fields(cfg_cls)}
             return cfg_cls(**{k: v for k, v in raw.items() if k in fields})
+
+        def sub(cfg_cls, key):
+            return build(cfg_cls, data.get(key, {}))
+
+        agents_raw = data.get("agents", {}) or {}
+        agents = AgentsConfig(
+            architect=build(ArchitectConfig, agents_raw.get("architect", {})),
+            developer=build(DeveloperConfig, agents_raw.get("developer", {})),
+            validation=build(ValidationConfig, agents_raw.get("validation", {})),
+        )
 
         return cls(
             backend=data.get("backend", "offline"),
             target_language=data.get("target_language", "python"),
+            test_framework=data.get("test_framework", "auto"),
             llama_cpp=sub(LlamaCppConfig, "llama_cpp"),
             openai_compat=sub(OpenAICompatConfig, "openai_compat"),
             proxy=sub(ProxyConfig, "proxy"),
             generation=sub(GenerationConfig, "generation"),
+            agents=agents,
             security=sub(SecurityConfig, "security"),
             audio=sub(AudioConfig, "audio"),
         )

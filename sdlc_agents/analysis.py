@@ -247,12 +247,17 @@ class AgentPlan:
     prompt: str
 
 
-def plan_agents(spec: ProjectSpec) -> List[AgentPlan]:
-    """Produce a role, task list and a ready-to-run prompt for each agent."""
+def plan_agents(spec: ProjectSpec, framework_display: str | None = None) -> List[AgentPlan]:
+    """Produce a role, task list and a ready-to-run prompt for each agent.
 
+    ``framework_display`` names the selected unit-test framework so the Developer
+    and Validation plans/prompts are precise about how tests are written and run.
+    """
+
+    fw = framework_display or "the language's default test framework"
     ctx_hint = (
-        f'Project "{spec.title}" (language: {spec.language}). '
-        f"Summary: {spec.summary}"
+        f'Project "{spec.title}" (language: {spec.language}, '
+        f'unit tests: {fw}). Summary: {spec.summary}'
     )
 
     architect = AgentPlan(
@@ -290,15 +295,16 @@ def plan_agents(spec: ProjectSpec) -> List[AgentPlan]:
         tasks=[
             "Design each component's public interface from the SAD.",
             f"Implement the core operations: {', '.join(spec.operations)}.",
-            "Write unit tests covering each operation and edge cases.",
+            f"Write unit tests using {fw}, covering each operation and edge cases.",
             "Write integration tests exercising the components together.",
-            "Run the tests locally and capture the results.",
+            "Add the build manifest and run the tests, capturing the results.",
             "Produce a developer build & validation report.",
         ],
         prompt=(
             f"{ctx_hint}\nAct as the Software Developer. Implement the design in "
-            f"{spec.language}. Provide: (1) component/source code, (2) unit tests, "
-            "(3) integration tests, (4) a short build report. Ensure the tests run."
+            f"{spec.language} using {fw}. Provide: (1) build manifest, "
+            "(2) component/source code, (3) unit tests, (4) integration tests, "
+            "(5) a short build report. Ensure the tests run."
         ),
     )
 
