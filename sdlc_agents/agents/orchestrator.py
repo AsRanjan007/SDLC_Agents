@@ -78,7 +78,9 @@ class Orchestrator:
         results: List[AgentResult] = []
         for agent_id in selected:
             emit("agent_start", {"agent_id": agent_id, "label": AGENT_LABELS[agent_id]})
-            agent = _REGISTRY[agent_id](llm=self.backend, generation=self.config.generation)
+            agent = _REGISTRY[agent_id](
+                llm=self.backend, generation=self.config.generation, config=self.config
+            )
             result = agent.run(spec, results, ctx)
             # Persist any artifacts the agent did not already write.
             store.write_all(result.artifacts)

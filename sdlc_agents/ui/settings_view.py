@@ -5,9 +5,12 @@ from __future__ import annotations
 import streamlit as st
 
 from ..config import AppConfig
+from ..languages import LANGUAGE_ORDER, framework_choices, get_language, normalize_language
 from ..llm import backend_status
 from ..audio import tts_available
 from ..security import cryptography_available
+
+DETAIL_LEVELS = ["brief", "standard", "detailed"]
 
 
 BACKENDS = {
@@ -65,16 +68,46 @@ def render(config: AppConfig) -> AppConfig:
     c1, c2 = st.columns(2)
     config.generation.temperature = c1.slider("Temperature", 0.0, 1.5, float(config.generation.temperature), 0.05)
     config.generation.max_tokens = c2.number_input("Max tokens", 256, 8192, int(config.generation.max_tokens), step=256)
-    langs = ["python", "java", "javascript", "typescript", "go", "csharp"]
-    config.target_language = st.selectbox(
+
+    # ---- Language & test framework --------------------------------------
+    st.subheader("3. Target language & unit-test framework")
+    langs = list(LANGUAGE_ORDER)
+    current_lang = normalize_language(config.target_language)
+    c1, c2 = st.columns(2)
+    config.target_language = c1.selectbox(
         "Target implementation language",
         langs,
-        index=langs.index(config.target_language) if config.target_language in langs else 0,
-        help="Runnable test execution is fully supported for Python; other languages generate code and documents.",
+        index=langs.index(current_lang) if current_lang in langs else 0,
+        format_func=lambda k: get_language(k).display,
+        help="The Developer agent generates idiomatic code and the chosen test framework for this language.",
     )
+    choices = framework_choices(config.target_language)  # [(id, display), ...]
+    fw_ids = [c[0] for c in choices]
+    fw_labels = {c[0]: c[1] for c in choices}
+    # Reset a stale framework selection when it does not apply to the language.
+    if config.test_framework not in fw_ids:
+        config.test_framework = fw_ids[0]
+    config.test_framework = c2.selectbox(
+        "Unit-test framework",
+        fw_ids,
+        index=fw_ids.index(config.test_framework),
+        format_func=lambda k: fw_labels[k],
+        help="cargo test (Rust), JUnit (Java), Kotest (Kotlin), GoogleTest (C/C++), pytest/unittest (Python).",
+    )
+    if get_language(config.target_language).runnable_in_process:
+        st.caption("✅ Tests for this language run in-process on any device.")
+    else:
+        st.caption(
+            f"ℹ️ Generated tests use a real {get_language(config.target_language).manifest_name} project. "
+            "They execute when the language toolchain is installed; otherwise they are reported as skipped."
+        )
+
+    # ---- Per-agent configuration ----------------------------------------
+    st.subheader("4. Agent configuration")
+    _render_agent_config(config)
 
     # ---- Proxy -----------------------------------------------------------
-    st.subheader("3. Corporate proxy (only used by the network endpoint)")
+    st.subheader("5. Corporate proxy (only used by the network endpoint)")
     config.proxy.use_system_proxy = st.checkbox("Use system proxy settings", value=config.proxy.use_system_proxy)
     if not config.proxy.use_system_proxy:
         config.proxy.http_proxy = st.text_input("HTTP proxy", value=config.proxy.http_proxy, placeholder="http://proxy:8080")
@@ -82,7 +115,7 @@ def render(config: AppConfig) -> AppConfig:
         config.proxy.no_proxy = st.text_input("No-proxy list", value=config.proxy.no_proxy)
 
     # ---- Security --------------------------------------------------------
-    st.subheader("4. Security & confidentiality")
+    st.subheader("6. Security & confidentiality")
     config.security.offline_only = st.checkbox(
         "Offline-only mode (block all network backends)",
         value=config.security.offline_only,
@@ -97,7 +130,7 @@ def render(config: AppConfig) -> AppConfig:
         st.warning("`cryptography` not installed — a weaker built-in fallback cipher will be used. Install it for AES-GCM.")
 
     # ---- Audio -----------------------------------------------------------
-    st.subheader("5. Demo narration (offline audio)")
+    st.subheader("7. Demo narration (offline audio)")
     config.audio.enabled = st.checkbox("Enable English audio narration", value=config.audio.enabled)
     if config.audio.enabled:
         c1, c2 = st.columns(2)
@@ -113,3 +146,49 @@ def render(config: AppConfig) -> AppConfig:
         st.success(f"Settings saved to {path}")
 
     return config
+
+
+def _render_agent_config(config: AppConfig) -> None:
+    """Per-agent options that steer what each agent generates and validates."""
+
+    agents = config.agents
+
+    with st.expander("🏛️ Software Architect", expanded=False):
+        a = agents.architect
+        a.detail_level = st.select_slider(
+            "Document detail level",
+            options=DETAIL_LEVELS,
+            value=a.detail_level if a.detail_level in DETAIL_LEVELS else "standard",
+            help="How much depth the Software Architecture Document carries.",
+        )
+        c1, c2, c3 = st.columns(3)
+        a.include_diagrams = c1.checkbox("Context diagrams", value=a.include_diagrams)
+        a.include_adrs = c2.checkbox("Decision records (ADRs)", value=a.include_adrs)
+        a.include_risks = c3.checkbox("Risk register", value=a.include_risks)
+
+    with st.expander("👩‍💻 Software Developer", expanded=False):
+        d = agents.developer
+        c1, c2 = st.columns(2)
+        d.generate_unit_tests = c1.checkbox("Generate unit tests", value=d.generate_unit_tests)
+        d.generate_integration_tests = c2.checkbox("Generate integration tests", value=d.generate_integration_tests)
+        c3, c4 = st.columns(2)
+        d.include_build_manifest = c3.checkbox(
+            "Include build manifest", value=d.include_build_manifest,
+            help="Cargo.toml / pom.xml / build.gradle.kts / CMakeLists.txt / pyproject.toml.",
+        )
+        d.run_tests = c4.checkbox(
+            "Run tests after generating", value=d.run_tests,
+            help="Executes the suite when the language toolchain is available.",
+        )
+
+    with st.expander("🔎 Validation Engineer", expanded=False):
+        v = agents.validation
+        c1, c2 = st.columns(2)
+        v.run_tests = c1.checkbox("Independently re-run tests", value=v.run_tests)
+        v.static_security_scan = c2.checkbox(
+            "Static security scan", value=v.static_security_scan,
+            help="Scans generated code for networking APIs to verify offline/confidentiality NFRs.",
+        )
+        c3, c4 = st.columns(2)
+        v.check_coverage = c3.checkbox("Check test:code coverage ratio", value=v.check_coverage)
+        v.excel_report = c4.checkbox("Emit Excel validation workbook", value=v.excel_report)
