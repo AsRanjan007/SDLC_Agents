@@ -10,7 +10,7 @@ by three collaborating agents:
 
 | Agent | Role | Produces |
 |-------|------|----------|
-| 🏛️ **Software Architect** | Designs the system | Software Architecture Document (SAD) |
+| 🏛️ **Software Architect** | Designs the system | Software Architecture Document (SAD) with a full diagram suite (overall architecture, component, data-flow, sequence, use-case — Mermaid) |
 | 👩‍💻 **Software Developer** | Builds the system | Component design, source code, **unit tests**, **integration tests**, runs them, build/validation report |
 | 🔎 **Validation Engineer** | Independently verifies | Functional & non-functional verification, architecture/design validation, **Excel validation report** (`.xlsx`) |
 
@@ -42,8 +42,10 @@ reading code.
 
 - **Per-agent configuration** — each agent has its own options that steer what it
   produces and how it validates:
-  - *Architect*: document detail level (brief / standard / detailed), context
-    diagrams, decision records (ADRs), risk register.
+  - *Architect*: document detail level (brief / standard / detailed), the
+    architecture diagram suite (overall architecture, component, data-flow,
+    sequence and use-case — rendered as Mermaid), decision records (ADRs),
+    risk register.
   - *Developer*: generate unit tests, integration tests, build manifest, and
     whether to execute the suite after generating.
   - *Validation Engineer*: independently re-run tests, static security scan,

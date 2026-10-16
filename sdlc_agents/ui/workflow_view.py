@@ -149,6 +149,13 @@ def _render_artifact(result, art):
             st.caption("Sheets: Summary, Functional, NonFunctional, Architecture, TestResults, CodeQuality.")
         elif art.language == "markdown":
             st.markdown(art.content)
+            if "```mermaid" in art.content:
+                st.caption(
+                    "This document contains Mermaid diagrams (overall architecture, "
+                    "component, data flow, sequence, use case). They render as diagrams "
+                    "when you open the downloaded `.md` on GitHub, in VS Code, or any "
+                    "Mermaid-aware viewer; the plain-text overview above always renders."
+                )
         elif art.kind in ("code", "test"):
             st.code(art.content, language="python" if art.language == "python" else "text")
         else:

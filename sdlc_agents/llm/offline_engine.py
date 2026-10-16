@@ -68,6 +68,165 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _mm_label(text: str) -> str:
+    """Mermaid-safe label: drop quotes/brackets that break node syntax."""
+
+    return re.sub(r'[\"\[\]{}()|<>]', "", text).strip() or "Component"
+
+
+def _find_component(comps, *keywords):
+    """Return (id, name) of the first component matching any keyword, or None."""
+
+    for i, c in enumerate(comps, start=1):
+        low = c.lower()
+        if any(k in low for k in keywords):
+            return f"C{i}", c
+    return None
+
+
+def render_diagrams(spec: ProjectSpec) -> str:
+    """Render the full architecture diagram suite as Mermaid + ASCII.
+
+    Produces five diagrams grounded in the project's components and operations:
+    overall architecture, component, data flow, sequence and use case. Everything
+    is deterministic and offline, so the SAD always contains them regardless of
+    whether an LLM is in use.
+    """
+
+    comps = spec.components or [
+        "Input/Interface Layer", "Core Service (business logic)", "Domain Model",
+        "Validation & Rules Engine", "Persistence/Artifact Store", "Reporting Module",
+    ]
+    ops = spec.operations or ["process_request", "validate_input", "build_report"]
+
+    interface = _find_component(comps, "interface", "input", "ui", "api")
+    core = _find_component(comps, "core", "service", "logic", "engine") or ("C1", comps[0])
+    validation = _find_component(comps, "valid", "rule")
+    domain = _find_component(comps, "domain", "model")
+    persistence = _find_component(comps, "persist", "store", "repository", "database")
+    reporting = _find_component(comps, "report", "output")
+
+    # --- 3.1 Overall architecture (ASCII + Mermaid) -----------------------
+    ascii_box = (
+        "```\n"
+        "          +--------------------------+\n"
+        "  User -> |  Interface / Input Layer |\n"
+        "          +------------+-------------+\n"
+        "                       v\n"
+        "          +--------------------------+\n"
+        "          |   Core Service (logic)   |\n"
+        "          +--+--------+--------+-----+\n"
+        "             v        v        v\n"
+        "        Validation  Domain   Persistence\n"
+        "             \\        |        /\n"
+        "              v       v       v\n"
+        "          +--------------------------+\n"
+        "          |     Reporting Module     | -> Artifacts (local, confidential)\n"
+        "          +--------------------------+\n"
+        "```\n"
+    )
+    overall = ["flowchart LR", "    User([User])"]
+    for i, c in enumerate(comps, start=1):
+        overall.append(f'    C{i}["{_mm_label(c)}"]')
+    if interface:
+        overall.append(f"    User --> {interface[0]}")
+        overall.append(f"    {interface[0]} --> {core[0]}")
+    else:
+        overall.append(f"    User --> {core[0]}")
+    for role in (validation, domain, persistence, reporting):
+        if role and role[0] != core[0]:
+            overall.append(f"    {core[0]} --> {role[0]}")
+    if reporting:
+        overall.append(f"    {reporting[0]} --> Out([Artifacts: local & confidential])")
+    else:
+        overall.append(f"    {core[0]} --> Out([Artifacts: local & confidential])")
+    overall_mm = "```mermaid\n" + "\n".join(overall) + "\n```\n"
+
+    # --- 3.2 Component diagram --------------------------------------------
+    comp_lines = ["flowchart TB"]
+    for i, c in enumerate(comps, start=1):
+        comp_lines.append(f'    C{i}["{_mm_label(c)}"]')
+    if interface:
+        comp_lines.append(f"    {interface[0]} -->|requests| {core[0]}")
+    for role in (validation, domain, persistence, reporting):
+        if role and role[0] != core[0]:
+            verb = {"valid": "validates via", "report": "reports via"}
+            label = "uses"
+            comp_lines.append(f"    {core[0]} -->|{label}| {role[0]}")
+    if reporting and persistence and reporting[0] != persistence[0]:
+        comp_lines.append(f"    {reporting[0]} -->|reads| {persistence[0]}")
+    component_mm = "```mermaid\n" + "\n".join(comp_lines) + "\n```\n"
+
+    # --- 3.3 Data flow diagram --------------------------------------------
+    op_valid = next((o for o in ops if "valid" in o.lower()), "validate")
+    op_main = next((o for o in ops if o.lower() not in (op_valid.lower(),)), ops[0])
+    flow = [
+        "flowchart LR",
+        "    IN([Input data])",
+        f"    V[{_mm_label(op_valid)}]",
+        f"    P[{_mm_label(op_main)} / process]",
+        "    S[(Local store)]",
+        "    R[Report]",
+        "    OUT([Result / error])",
+        "    IN --> V",
+        "    V -->|valid| P",
+        "    V -->|invalid| OUT",
+        "    P --> S",
+        "    P --> R",
+        "    R --> OUT",
+    ]
+    dataflow_mm = "```mermaid\n" + "\n".join(flow) + "\n```\n"
+
+    # --- 3.4 Sequence diagram ---------------------------------------------
+    sequence_mm = (
+        "```mermaid\n"
+        "sequenceDiagram\n"
+        "    actor User\n"
+        "    participant UI as Interface Layer\n"
+        "    participant Core as Core Service\n"
+        "    participant Val as Validation & Rules\n"
+        "    participant Store as Persistence\n"
+        "    participant Rep as Reporting\n"
+        "    User->>UI: submit input\n"
+        "    UI->>Core: process(input)\n"
+        "    Core->>Val: validate(input)\n"
+        "    Val-->>Core: ok / errors\n"
+        "    alt input valid\n"
+        "        Core->>Store: persist(record)\n"
+        "        Store-->>Core: stored\n"
+        "        Core->>Rep: summarise()\n"
+        "        Rep-->>Core: report\n"
+        "        Core-->>UI: result\n"
+        "    else input invalid\n"
+        "        Core-->>UI: validation error\n"
+        "    end\n"
+        "    UI-->>User: result / error\n"
+        "```\n"
+    )
+
+    # --- 3.5 Use case diagram ---------------------------------------------
+    usecases = ops[:6]
+    uc = ["flowchart LR", "    User((User))"]
+    for i, o in enumerate(usecases, start=1):
+        uc.append(f'    UC{i}(["{_mm_label(o.replace("_", " "))}"])')
+        uc.append(f"    User --> UC{i}")
+    usecase_mm = "```mermaid\n" + "\n".join(uc) + "\n```\n"
+
+    return (
+        "### 3.1 Overall Architecture Diagram\n"
+        "A plain-text overview (renders everywhere) followed by a Mermaid diagram:\n\n"
+        + ascii_box + "\n" + overall_mm + "\n"
+        + "### 3.2 Component Diagram\n"
+        "Components and their dependencies:\n\n" + component_mm + "\n"
+        + "### 3.3 Data Flow Diagram\n"
+        "How data moves from input to validated output and reports:\n\n" + dataflow_mm + "\n"
+        + "### 3.4 Sequence Diagram\n"
+        "The runtime interaction for a typical request:\n\n" + sequence_mm + "\n"
+        + "### 3.5 Use Case Diagram\n"
+        "The actor and the use cases derived from the requirements:\n\n" + usecase_mm
+    )
+
+
 def render_architecture_document(
     spec: ProjectSpec,
     *,
@@ -126,14 +285,7 @@ def render_architecture_document(
     )
 
     if include_diagrams:
-        parts.append(
-            "## 3. System Context\n```\n"
-            "        +-------------------+\n"
-            f"User -> |  {spec.title[:24]:<24}| -> Artifacts (local, confidential)\n"
-            "        +-------------------+\n```\n"
-            "The system takes user-provided input, applies the core business "
-            "logic, and produces validated outputs and reports stored locally.\n"
-        )
+        parts.append("## 3. Architecture Diagrams\n" + render_diagrams(spec))
 
     parts.append(
         "## 4. Logical Component View\n"
