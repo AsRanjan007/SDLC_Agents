@@ -2,15 +2,29 @@
 
 Produces a component design, source code, unit tests, integration tests and a
 build/validation report for the **configured target language and unit-test
-framework**, then executes the tests when a toolchain is available. When an LLM
-is configured it is asked to author the implementation; output that fails the
-language-appropriate validity check is discarded in favour of the deterministic
-scaffold so the delivery is always coherent.
+framework**, then executes the tests with the correct toolchain (pytest for
+Python, ``cargo test`` for Rust, Maven/Gradle for Java/Kotlin, CMake/CTest for
+C/C++).
+
+When an LLM is configured (e.g. a local Ollama endpoint) it is asked to author
+the implementation, and this agent makes LLM mode robust:
+
+1. The model is given the exact per-language project layout and told which build
+   manifest and unit-test framework to use.
+2. A missing build manifest is backfilled from the deterministic generator so
+   the toolchain can always build the project.
+3. The real toolchain is executed to verify the result. If the model's code does
+   not build or its tests fail (and a toolchain is present), the agent falls back
+   to the deterministic scaffold and re-runs, so the delivery that ships is
+   always one that builds and passes. Python output is additionally AST-checked
+   before it is trusted.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import shutil
+from pathlib import Path
 from typing import List
 
 from .. import codegen
@@ -26,8 +40,13 @@ _SYSTEM = (
     "dependency-light code that builds and runs offline. Emit each file wrapped "
     "exactly as:\n=== FILE: <path> ===\n<content>\n=== END FILE ===\n"
     "Include the build manifest, the source, unit tests and integration tests, "
-    "each in the idiomatic location for the language."
+    "each in the exact idiomatic location for the language so the project builds "
+    "and its tests run with the standard toolchain."
 )
+
+# Test statuses that mean the delivered code is not verifiably good and we should
+# fall back to the deterministic scaffold (only when a toolchain actually ran).
+_FALLBACK_STATUSES = {"failed", "error", "no-tests", "unknown"}
 
 
 class _DevDefaults:
@@ -52,47 +71,42 @@ class DeveloperAgent(BaseAgent):
         dev = self._dev_cfg()
 
         design = codegen.component_design(spec, framework.id)
-        code_source = "offline engine"
 
-        code_artifacts: List[Artifact] = []
+        # The deterministic scaffold is always available and always runnable.
+        scaffold = codegen.generate_project(
+            spec,
+            framework.id,
+            unit_tests=getattr(dev, "generate_unit_tests", True),
+            integration_tests=getattr(dev, "generate_integration_tests", True),
+            build_manifest=getattr(dev, "include_build_manifest", True),
+        )
+
+        code_artifacts = scaffold
+        code_source = "offline engine"
+        used_llm = False
+
         if self._use_llm():
             prompt = (
                 self._context_block(spec)
                 + f"Implement the system in {profile.display} using the "
-                f"{framework.display} unit-test framework. Provide the build "
-                "manifest, source code, unit tests and integration tests using "
-                "the FILE block format."
+                f"{framework.display} unit-test framework. Follow this exact "
+                f"project layout and build/test setup so the standard toolchain "
+                f"can build and run it:\n\n{design}\n\n"
+                "Emit the build manifest, the source code, the unit tests and the "
+                "integration tests using the FILE block format."
             )
             text = self._generate(_SYSTEM, prompt)
             parsed = self._parse_file_blocks(text)
             if self._llm_output_valid(spec, parsed):
-                code_artifacts = _ensure_conftest(parsed) if profile.id == "python" else parsed
+                code_artifacts = self._ensure_runnable(parsed, spec, profile, framework)
                 code_source = f"LLM ({self.llm.name})"
-
-        if not code_artifacts:
-            code_artifacts = codegen.generate_project(
-                spec,
-                framework.id,
-                unit_tests=getattr(dev, "generate_unit_tests", True),
-                integration_tests=getattr(dev, "generate_integration_tests", True),
-                build_manifest=getattr(dev, "include_build_manifest", True),
-            )
-
-        artifacts: List[Artifact] = [
-            Artifact(
-                path="docs/design/Component_Design.md",
-                content=design,
-                kind="doc",
-                language="markdown",
-            )
-        ] + code_artifacts
+                used_llm = True
 
         # Persist code + tests to disk so we can actually build/run them.
-        if ctx.write_artifact:
-            for art in artifacts:
-                ctx.write_artifact(art)
+        _write_code(ctx, design, code_artifacts)
 
-        if getattr(dev, "run_tests", True):
+        run_enabled = getattr(dev, "run_tests", True)
+        if run_enabled:
             test_summary = run_tests(ctx.workspace, lang, framework.id)
         else:
             test_summary = {
@@ -100,8 +114,17 @@ class DeveloperAgent(BaseAgent):
                 "detail": "Test execution disabled in Developer configuration.",
             }
 
+        # Robustness: if the LLM's code was actually executed and did not pass,
+        # fall back to the deterministic scaffold and re-verify.
+        if used_llm and run_enabled and test_summary.get("status") in _FALLBACK_STATUSES:
+            _clean_code(ctx.workspace, code_artifacts)
+            code_artifacts = scaffold
+            code_source = f"LLM output failed {framework.display} verification — fell back to offline scaffold"
+            _write_code(ctx, design, code_artifacts)
+            test_summary = run_tests(ctx.workspace, lang, framework.id)
+
         build_report = _render_build_report(
-            spec, profile.display, framework.display, code_artifacts, test_summary
+            spec, profile.display, framework.display, code_artifacts, test_summary, code_source
         )
         report_artifact = Artifact(
             path="docs/reports/Developer_Build_Report.md",
@@ -109,17 +132,21 @@ class DeveloperAgent(BaseAgent):
             kind="report",
             language="markdown",
         )
-        artifacts.append(report_artifact)
         if ctx.write_artifact:
             ctx.write_artifact(report_artifact)
+
+        artifacts: List[Artifact] = [
+            Artifact(path="docs/design/Component_Design.md", content=design, kind="doc", language="markdown")
+        ] + code_artifacts + [report_artifact]
 
         n_code = sum(1 for a in code_artifacts if a.kind == "code")
         n_tests = sum(1 for a in code_artifacts if a.kind == "test")
         narration = (
             f"The Software Developer agent implemented {spec.title} in "
             f"{profile.display}, producing {n_code} source/build files and "
-            f"{n_tests} test modules using the {framework.display} framework. It "
-            f"then ran the test suite: status {test_summary.get('status')} "
+            f"{n_tests} test modules using the {framework.display} framework "
+            f"({code_source}). It then ran the {framework.display} test suite: "
+            f"status {test_summary.get('status')} "
             f"({test_summary.get('passed', 0)} passed / "
             f"{test_summary.get('total', 0)} total)."
         )
@@ -147,8 +174,47 @@ class DeveloperAgent(BaseAgent):
             narration=narration,
         )
 
+    # ---- helpers ---------------------------------------------------------
 
-def _render_build_report(spec, language, framework, code_artifacts, test_summary) -> str:
+    def _ensure_runnable(self, artifacts, spec, profile, framework) -> List[Artifact]:
+        """Backfill pieces the toolchain needs but the LLM may have omitted."""
+
+        arts = list(artifacts)
+        if profile.id == "python":
+            return _ensure_conftest(arts)
+        manifest = profile.manifest_name
+        if manifest and not any(a.path.split("/")[-1] == manifest for a in arts):
+            arts += codegen.get_generator(profile.id).build_manifest(spec, framework)
+        return arts
+
+
+def _write_code(ctx: RunContext, design: str, code_artifacts: List[Artifact]) -> None:
+    if not ctx.write_artifact:
+        return
+    ctx.write_artifact(
+        Artifact(path="docs/design/Component_Design.md", content=design, kind="doc", language="markdown")
+    )
+    for art in code_artifacts:
+        ctx.write_artifact(art)
+
+
+def _clean_code(workspace: Path, code_artifacts: List[Artifact]) -> None:
+    """Remove a previous (LLM) attempt's files before writing the fallback."""
+
+    for art in code_artifacts:
+        fp = workspace / art.path
+        try:
+            if fp.is_file():
+                fp.unlink()
+        except OSError:
+            pass
+    # Drop any stale CMake build tree so the fallback reconfigures cleanly.
+    build_dir = workspace / "build"
+    if build_dir.is_dir():
+        shutil.rmtree(build_dir, ignore_errors=True)
+
+
+def _render_build_report(spec, language, framework, code_artifacts, test_summary, code_source) -> str:
     ts = test_summary or {}
     files = "\n".join(f"- `{a.path}`" for a in code_artifacts)
     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -161,6 +227,7 @@ def _render_build_report(spec, language, framework, code_artifacts, test_summary
 
 - Target language: **{language}**
 - Unit-test framework: **{framework}**
+- Source of implementation: **{code_source}**
 
 ## Delivered Artifacts
 {files}
@@ -173,9 +240,10 @@ def _render_build_report(spec, language, framework, code_artifacts, test_summary
 - Total: {ts.get("total", "-")} | Passed: {ts.get("passed", "-")} | Failed: {ts.get("failed", "-")}{detail_block}
 
 ## Notes
-Code is deterministic, dependency-light and designed to run offline. The
-Validation Engineer agent independently re-checks the delivery and records the
-outcome in the Excel validation report.
+Tests are executed with the language's own toolchain (pytest, cargo, Maven,
+Gradle or CMake/CTest). When a toolchain is unavailable the suite is reported as
+*skipped* rather than failed. The Validation Engineer agent independently
+re-checks the delivery and records the outcome in the Excel validation report.
 """
 
 
