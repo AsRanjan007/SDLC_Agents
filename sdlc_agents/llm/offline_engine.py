@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as _dt
 import keyword
 import re
-from typing import List
+from typing import List, Optional
 
 from ..analysis import ProjectSpec
 from ..types import Artifact
@@ -84,13 +84,11 @@ def _find_component(comps, *keywords):
     return None
 
 
-def render_diagrams(spec: ProjectSpec) -> str:
-    """Render the full architecture diagram suite as Mermaid + ASCII.
+def _build_diagram_blocks(spec: ProjectSpec) -> dict:
+    """Build the five Mermaid diagrams (+ an ASCII overview) as a dict of blocks.
 
-    Produces five diagrams grounded in the project's components and operations:
-    overall architecture, component, data flow, sequence and use case. Everything
-    is deterministic and offline, so the SAD always contains them regardless of
-    whether an LLM is in use.
+    Every node label is quoted so parentheses, colons, commas and other special
+    characters in component/operation names can never break the Mermaid parser.
     """
 
     comps = spec.components or [
@@ -106,7 +104,10 @@ def render_diagrams(spec: ProjectSpec) -> str:
     persistence = _find_component(comps, "persist", "store", "repository", "database")
     reporting = _find_component(comps, "report", "output")
 
-    # --- 3.1 Overall architecture (ASCII + Mermaid) -----------------------
+    def fence(lines) -> str:
+        return "```mermaid\n" + "\n".join(lines) + "\n```\n"
+
+    # --- Overall architecture (ASCII + Mermaid) ---------------------------
     ascii_box = (
         "```\n"
         "          +--------------------------+\n"
@@ -125,7 +126,7 @@ def render_diagrams(spec: ProjectSpec) -> str:
         "          +--------------------------+\n"
         "```\n"
     )
-    overall = ["flowchart LR", "    User([User])"]
+    overall = ["flowchart LR", '    User(["User"])']
     for i, c in enumerate(comps, start=1):
         overall.append(f'    C{i}["{_mm_label(c)}"]')
     if interface:
@@ -136,13 +137,10 @@ def render_diagrams(spec: ProjectSpec) -> str:
     for role in (validation, domain, persistence, reporting):
         if role and role[0] != core[0]:
             overall.append(f"    {core[0]} --> {role[0]}")
-    if reporting:
-        overall.append(f"    {reporting[0]} --> Out([Artifacts: local & confidential])")
-    else:
-        overall.append(f"    {core[0]} --> Out([Artifacts: local & confidential])")
-    overall_mm = "```mermaid\n" + "\n".join(overall) + "\n```\n"
+    sink = reporting[0] if reporting else core[0]
+    overall.append(f'    {sink} --> Out(["Local, confidential artifacts"])')
 
-    # --- 3.2 Component diagram --------------------------------------------
+    # --- Component diagram ------------------------------------------------
     comp_lines = ["flowchart TB"]
     for i, c in enumerate(comps, start=1):
         comp_lines.append(f'    C{i}["{_mm_label(c)}"]')
@@ -150,24 +148,21 @@ def render_diagrams(spec: ProjectSpec) -> str:
         comp_lines.append(f"    {interface[0]} -->|requests| {core[0]}")
     for role in (validation, domain, persistence, reporting):
         if role and role[0] != core[0]:
-            verb = {"valid": "validates via", "report": "reports via"}
-            label = "uses"
-            comp_lines.append(f"    {core[0]} -->|{label}| {role[0]}")
+            comp_lines.append(f"    {core[0]} -->|uses| {role[0]}")
     if reporting and persistence and reporting[0] != persistence[0]:
         comp_lines.append(f"    {reporting[0]} -->|reads| {persistence[0]}")
-    component_mm = "```mermaid\n" + "\n".join(comp_lines) + "\n```\n"
 
-    # --- 3.3 Data flow diagram --------------------------------------------
+    # --- Data flow diagram ------------------------------------------------
     op_valid = next((o for o in ops if "valid" in o.lower()), "validate")
-    op_main = next((o for o in ops if o.lower() not in (op_valid.lower(),)), ops[0])
+    op_main = next((o for o in ops if o.lower() != op_valid.lower()), ops[0])
     flow = [
         "flowchart LR",
-        "    IN([Input data])",
-        f"    V[{_mm_label(op_valid)}]",
-        f"    P[{_mm_label(op_main)} / process]",
-        "    S[(Local store)]",
-        "    R[Report]",
-        "    OUT([Result / error])",
+        '    IN(["Input data"])',
+        f'    V["{_mm_label(op_valid)}"]',
+        f'    P["{_mm_label(op_main)} / process"]',
+        '    S[("Local store")]',
+        '    R["Report"]',
+        '    OUT(["Result or error"])',
         "    IN --> V",
         "    V -->|valid| P",
         "    V -->|invalid| OUT",
@@ -175,56 +170,130 @@ def render_diagrams(spec: ProjectSpec) -> str:
         "    P --> R",
         "    R --> OUT",
     ]
-    dataflow_mm = "```mermaid\n" + "\n".join(flow) + "\n```\n"
 
-    # --- 3.4 Sequence diagram ---------------------------------------------
-    sequence_mm = (
-        "```mermaid\n"
-        "sequenceDiagram\n"
-        "    actor User\n"
-        "    participant UI as Interface Layer\n"
-        "    participant Core as Core Service\n"
-        "    participant Val as Validation & Rules\n"
-        "    participant Store as Persistence\n"
-        "    participant Rep as Reporting\n"
-        "    User->>UI: submit input\n"
-        "    UI->>Core: process(input)\n"
-        "    Core->>Val: validate(input)\n"
-        "    Val-->>Core: ok / errors\n"
-        "    alt input valid\n"
-        "        Core->>Store: persist(record)\n"
-        "        Store-->>Core: stored\n"
-        "        Core->>Rep: summarise()\n"
-        "        Rep-->>Core: report\n"
-        "        Core-->>UI: result\n"
-        "    else input invalid\n"
-        "        Core-->>UI: validation error\n"
-        "    end\n"
-        "    UI-->>User: result / error\n"
-        "```\n"
-    )
+    # --- Sequence diagram -------------------------------------------------
+    sequence = [
+        "sequenceDiagram",
+        "    actor User",
+        "    participant UI as Interface Layer",
+        "    participant Core as Core Service",
+        "    participant Val as Validation and Rules",
+        "    participant Store as Persistence",
+        "    participant Rep as Reporting",
+        "    User->>UI: submit input",
+        "    UI->>Core: process(input)",
+        "    Core->>Val: validate(input)",
+        "    Val-->>Core: ok or errors",
+        "    alt input valid",
+        "        Core->>Store: persist(record)",
+        "        Store-->>Core: stored",
+        "        Core->>Rep: summarise()",
+        "        Rep-->>Core: report",
+        "        Core-->>UI: result",
+        "    else input invalid",
+        "        Core-->>UI: validation error",
+        "    end",
+        "    UI-->>User: result or error",
+    ]
 
-    # --- 3.5 Use case diagram ---------------------------------------------
-    usecases = ops[:6]
-    uc = ["flowchart LR", "    User((User))"]
-    for i, o in enumerate(usecases, start=1):
+    # --- Use case diagram (valid flowchart, not invented syntax) ----------
+    uc = ["flowchart LR", '    User(["User"])']
+    for i, o in enumerate(ops[:6], start=1):
         uc.append(f'    UC{i}(["{_mm_label(o.replace("_", " "))}"])')
         uc.append(f"    User --> UC{i}")
-    usecase_mm = "```mermaid\n" + "\n".join(uc) + "\n```\n"
 
+    return {
+        "ascii": ascii_box,
+        "overall": fence(overall),
+        "component": fence(comp_lines),
+        "dataflow": fence(flow),
+        "sequence": fence(sequence),
+        "usecase": fence(uc),
+    }
+
+
+def render_diagrams(spec: ProjectSpec) -> str:
+    """Render the full architecture diagram suite as Mermaid + ASCII.
+
+    Produces five diagrams grounded in the project's components and operations:
+    overall architecture, component, data flow, sequence and use case. Everything
+    is deterministic and offline, so the SAD always contains them regardless of
+    whether an LLM is in use.
+    """
+
+    b = _build_diagram_blocks(spec)
     return (
         "### 3.1 Overall Architecture Diagram\n"
         "A plain-text overview (renders everywhere) followed by a Mermaid diagram:\n\n"
-        + ascii_box + "\n" + overall_mm + "\n"
+        + b["ascii"] + "\n" + b["overall"] + "\n"
         + "### 3.2 Component Diagram\n"
-        "Components and their dependencies:\n\n" + component_mm + "\n"
+        "Components and their dependencies:\n\n" + b["component"] + "\n"
         + "### 3.3 Data Flow Diagram\n"
-        "How data moves from input to validated output and reports:\n\n" + dataflow_mm + "\n"
+        "How data moves from input to validated output and reports:\n\n" + b["dataflow"] + "\n"
         + "### 3.4 Sequence Diagram\n"
-        "The runtime interaction for a typical request:\n\n" + sequence_mm + "\n"
+        "The runtime interaction for a typical request:\n\n" + b["sequence"] + "\n"
         + "### 3.5 Use Case Diagram\n"
-        "The actor and the use cases derived from the requirements:\n\n" + usecase_mm
+        "The actor and the use cases derived from the requirements:\n\n" + b["usecase"]
     )
+
+
+_MERMAID_RE = re.compile(r"```mermaid[^\n]*\n.*?```", re.DOTALL)
+_DIAGRAM_ORDER = ["overall", "component", "dataflow", "sequence", "usecase"]
+
+
+def _classify_diagram(preceding: str) -> Optional[str]:
+    low = preceding.lower()
+    if "use case" in low or "use-case" in low or "usecase" in low:
+        return "usecase"
+    if "sequence" in low:
+        return "sequence"
+    if "data flow" in low or "dataflow" in low or "data-flow" in low:
+        return "dataflow"
+    if "component" in low:
+        return "component"
+    if "overall" in low or "high-level" in low or "high level" in low or "architecture diagram" in low:
+        return "overall"
+    return None
+
+
+def sanitize_llm_diagrams(doc: str, spec: ProjectSpec) -> str:
+    """Replace Mermaid blocks in an LLM-authored SAD with valid, known-good ones.
+
+    LLMs frequently emit Mermaid that does not parse (unquoted labels with
+    parentheses/colons, invented ``actor``/``rectangle`` keywords in flowcharts,
+    ...). Rather than trust them, every ``mermaid`` block is swapped — classified
+    by its preceding heading, falling back to document order — for the
+    deterministic block of the same type. Any diagram type that never appeared is
+    appended so the SAD still carries all five.
+    """
+
+    blocks = _build_diagram_blocks(spec)
+    matches = list(_MERMAID_RE.finditer(doc))
+    if not matches:
+        return doc.rstrip() + "\n\n## Architecture Diagrams\n" + render_diagrams(spec)
+
+    used: set = set()
+    out: List[str] = []
+    last = 0
+    for idx, m in enumerate(matches):
+        kind = _classify_diagram(doc[max(0, m.start() - 400):m.start()])
+        if kind is None or kind in used:
+            kind = next((k for k in _DIAGRAM_ORDER if k not in used), None)
+        out.append(doc[last:m.start()])
+        if kind and blocks.get(kind):
+            out.append(blocks[kind].rstrip("\n"))
+            used.add(kind)
+        else:
+            out.append(m.group(0))
+        last = m.end()
+    out.append(doc[last:])
+    result = "".join(out)
+
+    missing = [k for k in _DIAGRAM_ORDER if k not in used]
+    if missing:
+        extra = "\n".join(blocks[k] for k in missing)
+        result = result.rstrip() + "\n\n### Additional Diagrams\n" + extra
+    return result
 
 
 def render_architecture_document(
