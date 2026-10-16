@@ -62,9 +62,12 @@ reading code.
   **traceability** (Architecture ID → Design ID → Code file → Test). Generated
   code carries design-ID banners and tests carry `Covers:` links. After the tests
   run, a **SonarQube-style static-analysis** pass and **code coverage for the unit
-  and integration suites** are reported (Python coverage measured offline with a
-  stdlib tracer; other languages measured with their standard coverage tool on a
-  toolchain host).
+  and integration suites** are reported. Python coverage is measured offline with
+  a stdlib tracer; **Java (JaCoCo) and Kotlin (Kover) coverage are measured for
+  real** when the toolchain is available; Rust/C/C++ are reported best-effort with
+  their standard tool. Toolchains are located robustly (PATH, `<TOOL>_HOME`,
+  common install dirs and project wrappers), so tests still run when a
+  desktop-launched app didn't inherit the shell PATH.
 - **Real, runnable output**: generated projects are standard, idiomatic projects.
   Python tests run in-process on any device; for the other languages the tests
   execute when the toolchain (`cargo`, `mvn`, `gradle`, `cmake`) is installed and

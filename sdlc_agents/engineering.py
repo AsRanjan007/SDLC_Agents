@@ -527,6 +527,97 @@ def _py_coverage(workspace: Path, suite_subdir: str) -> Optional[Dict]:
         return None
 
 
+def _parse_jacoco_xml(text: str) -> Optional[Dict]:
+    """Parse LINE coverage from a JaCoCo-format XML report (JaCoCo & Kover)."""
+
+    import xml.etree.ElementTree as ET
+
+    text = re.sub(r"<!DOCTYPE[^>]*>", "", text, flags=re.DOTALL)  # avoid DTD fetch
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+    def line_counter(elem):
+        for c in elem.findall("counter"):
+            if c.get("type") == "LINE":
+                return int(c.get("covered", 0)), int(c.get("missed", 0))
+        return None
+
+    lc = line_counter(root)
+    if lc is None:  # fall back to the largest LINE counter anywhere
+        best = None
+        for c in root.iter("counter"):
+            if c.get("type") == "LINE":
+                cov, mis = int(c.get("covered", 0)), int(c.get("missed", 0))
+                if best is None or (cov + mis) > (best[0] + best[1]):
+                    best = (cov, mis)
+        lc = best
+    if not lc:
+        return None
+    covered, missed = lc
+    total = covered + missed
+    pct = round(100.0 * covered / total, 1) if total else 0.0
+    return {"pct": pct, "covered": covered, "total": total}
+
+
+def _read_first(workspace: Path, candidates) -> Optional[str]:
+    for rel in candidates:
+        p = workspace / rel
+        if p.is_file():
+            try:
+                return p.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+    return None
+
+
+# (toolchain, build command tail, report paths, display name) per JVM language.
+_JVM_COVERAGE = {
+    "kotlin": ("gradle", ["koverXmlReport", "--console=plain"],
+               ["build/reports/kover/report.xml", "build/reports/kover/xml/report.xml"], "Kover"),
+    "java": ("mvn", ["-q", "-B", "test"],
+             ["target/site/jacoco/jacoco.xml"], "JaCoCo"),
+}
+
+
+def _external_coverage(workspace: Path, lang: str) -> Optional[Dict]:
+    """Measure coverage for JVM languages with Kover/JaCoCo when available."""
+
+    from .testrunner import resolve_tool
+
+    cfg = _JVM_COVERAGE.get(lang)
+    if not cfg:
+        return None
+    toolchain, tail, reports, name = cfg
+
+    # Reuse a report already produced by the test run (e.g. JaCoCo during `mvn test`).
+    xml = _read_first(workspace, reports)
+    if xml is None:
+        tool = resolve_tool(toolchain, workspace)
+        if not tool:
+            return None  # fall through to the generic note
+        try:
+            proc = subprocess.run([tool, *tail], cwd=str(workspace),
+                                  capture_output=True, text=True, timeout=1200)
+        except subprocess.TimeoutExpired:
+            return {"measured": False, "tool": name, "note": f"{name} build timed out."}
+        except OSError as exc:
+            return {"measured": False, "tool": name, "note": f"Could not run {name}: {exc}."}
+        xml = _read_first(workspace, reports)
+        if xml is None:
+            return {"measured": False, "tool": name,
+                    "note": f"Attempted {name} but no coverage report was produced "
+                            f"(build exit {proc.returncode}); usually a missing dependency "
+                            f"download. On a host with the toolchain and network, coverage "
+                            f"is reported here."}
+    parsed = _parse_jacoco_xml(xml)
+    if not parsed:
+        return {"measured": False, "tool": name, "note": f"{name} report could not be parsed."}
+    return {"measured": True, "tool": name, "combined": True,
+            "overall": parsed, "unit": None, "integration": None}
+
+
 def measure_coverage(workspace: Path, language: str) -> Dict:
     """Measure unit + integration coverage; returns a structured result."""
 
@@ -540,9 +631,14 @@ def measure_coverage(workspace: Path, language: str) -> Dict:
             "tool": "stdlib tracer (offline)",
             "unit": unit, "integration": integ, "overall": overall,
         }
+
+    ext = _external_coverage(workspace, lang)
+    if ext is not None:
+        return ext
+
     tool = {
-        "rust": "cargo-llvm-cov / tarpaulin", "java": "JaCoCo",
-        "kotlin": "Kover", "c": "gcovr/lcov", "cpp": "gcovr/lcov",
+        "rust": "cargo-llvm-cov / tarpaulin",
+        "c": "gcovr/lcov", "cpp": "gcovr/lcov",
     }.get(lang, "a coverage tool")
     return {
         "measured": False, "tool": tool,
@@ -559,7 +655,15 @@ def render_coverage(cov: Dict) -> str:
     def pct(block):
         if not block:
             return "n/a"
-        return f"{block.get('pct', 0)}% ({block.get('covered', 0)}/{block.get('total', 0)} statements)"
+        return f"{block.get('pct', 0)}% ({block.get('covered', 0)}/{block.get('total', 0)} lines)"
+
+    if cov.get("combined"):
+        return (
+            head + f"*Measured with {cov['tool']}. The JVM build runs all tests together, "
+            "so unit and integration coverage are reported as a combined figure.*\n\n"
+            "| Suite | Coverage |\n|-------|----------|\n"
+            f"| Unit + integration (combined) | {pct(cov.get('overall'))} |\n"
+        )
 
     return (
         head + f"*Measured with the {cov['tool']}.*\n\n"
