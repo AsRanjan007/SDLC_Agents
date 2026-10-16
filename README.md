@@ -11,7 +11,7 @@ by three collaborating agents:
 | Agent | Role | Produces |
 |-------|------|----------|
 | 🏛️ **Software Architect** | Designs the system | Software Architecture Document (SAD) with a full diagram suite (overall architecture, component, data-flow, sequence, use-case — Mermaid) |
-| 👩‍💻 **Software Developer** | Builds the system | Component design, source code, **unit tests**, **integration tests**, runs them, build/validation report |
+| 👩‍💻 **Software Developer** | Builds the system | Component design with **class + sequence diagrams from the actual code**, design patterns, **design-ID traceability** (Architecture ID → Design ID → Code → Test), source code + **unit/integration tests** (runs them), **SonarQube-style static analysis**, and **UT/IT code coverage**, build/validation report |
 | 🔎 **Validation Engineer** | Independently verifies | Functional & non-functional verification, architecture/design validation, **Excel validation report** (`.xlsx`) |
 
 An embedded **English audio narration** (with always-on captions) walks a viewer
@@ -56,6 +56,15 @@ reading code.
   - **Local OpenAI-compatible endpoint** (Ollama / LM Studio / vLLM), proxy-aware.
   - **Deterministic offline engine** — zero model, zero network; the full flow
     (docs, code, tests, reports, narration) still works out of the box.
+- **Engineering rigour from the Developer agent** — the component design includes
+  a **class diagram and sequence diagram derived from the actual generated code**,
+  the **design patterns** used, **detailed component descriptions**, and full
+  **traceability** (Architecture ID → Design ID → Code file → Test). Generated
+  code carries design-ID banners and tests carry `Covers:` links. After the tests
+  run, a **SonarQube-style static-analysis** pass and **code coverage for the unit
+  and integration suites** are reported (Python coverage measured offline with a
+  stdlib tracer; other languages measured with their standard coverage tool on a
+  toolchain host).
 - **Real, runnable output**: generated projects are standard, idiomatic projects.
   Python tests run in-process on any device; for the other languages the tests
   execute when the toolchain (`cargo`, `mvn`, `gradle`, `cmake`) is installed and
