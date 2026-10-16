@@ -140,10 +140,63 @@ def test_render_coverage_non_python_notes_tool():
     assert "requires JaCoCo" in out
 
 
-def test_measure_coverage_non_python_is_best_effort(tmp_path):
-    cov = E.measure_coverage(tmp_path, "java")
-    assert cov["measured"] is False
-    assert "JaCoCo" in cov["tool"]
+def test_render_coverage_combined_jvm():
+    cov = {"measured": True, "tool": "Kover", "combined": True,
+           "overall": {"pct": 88.0, "covered": 44, "total": 50}, "unit": None, "integration": None}
+    out = E.render_coverage(cov)
+    assert "Kover" in out
+    assert "combined" in out.lower()
+    assert "88.0%" in out
+
+
+def test_parse_jacoco_xml_line_counter():
+    xml = (
+        '<?xml version="1.0"?><report name="x">'
+        '<counter type="INSTRUCTION" missed="10" covered="90"/>'
+        '<counter type="LINE" missed="5" covered="15"/>'
+        "</report>"
+    )
+    parsed = E._parse_jacoco_xml(xml)
+    assert parsed == {"pct": 75.0, "covered": 15, "total": 20}
+
+
+def test_parse_jacoco_xml_handles_doctype_and_nested():
+    xml = (
+        '<?xml version="1.0"?><!DOCTYPE report PUBLIC "-//JACOCO//DTD" "report.dtd">'
+        '<report name="x"><package name="p">'
+        '<counter type="LINE" missed="1" covered="3"/></package>'
+        '<counter type="LINE" missed="2" covered="8"/></report>'
+    )
+    parsed = E._parse_jacoco_xml(xml)
+    # Uses the report-level counter (covered 8 / missed 2), not the nested one.
+    assert parsed["covered"] == 8 and parsed["total"] == 10
+
+
+def test_kotlin_build_has_kover_plugin():
+    from sdlc_agents import codegen
+    from sdlc_agents.analysis import analyze
+    arts = codegen.generate_project(analyze("x", "y", "z", "kotlin"), "kotest")
+    gradle = next(a for a in arts if a.path == "build.gradle.kts").content
+    assert "org.jetbrains.kotlinx.kover" in gradle
+    assert "koverXmlReport" in gradle  # referenced in the comment for discoverability
+
+
+def test_java_pom_has_jacoco_plugin():
+    from sdlc_agents import codegen
+    from sdlc_agents.analysis import analyze
+    arts = codegen.generate_project(analyze("x", "y", "z", "java"), "junit5")
+    pom = next(a for a in arts if a.path == "pom.xml").content
+    assert "jacoco-maven-plugin" in pom
+
+
+def test_resolve_tool_finds_project_wrapper(tmp_path):
+    from sdlc_agents.testrunner import resolve_tool
+    import os
+    wrapper = tmp_path / "mvnw"
+    wrapper.write_text("#!/bin/sh\necho hi\n")
+    os.chmod(wrapper, 0o755)
+    assert resolve_tool("mvn", tmp_path) == str(wrapper)
+    assert resolve_tool("definitely-not-a-real-tool", tmp_path) is None
 
 
 # ---- developer integration ------------------------------------------------

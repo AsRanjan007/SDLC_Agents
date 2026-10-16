@@ -204,6 +204,8 @@ class {cls}IntegrationTest : StringSpec({{
             )
         gradle = f'''plugins {{
     kotlin("jvm") version "1.9.24"
+    // Kover provides code coverage: `gradle koverXmlReport` -> build/reports/kover/report.xml
+    id("org.jetbrains.kotlinx.kover") version "0.7.6"
 }}
 
 group = "{_GROUP}"

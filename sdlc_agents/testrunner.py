@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional  # noqa: F401
 
 from .languages import get_language, normalize_language, resolve_framework
 
@@ -140,6 +140,64 @@ def _import_path(path: Path):
 # External toolchains (Rust / Java / Kotlin / C / C++)
 # ---------------------------------------------------------------------------
 
+# Environment variables that commonly point at a toolchain's install root.
+_TOOL_HOME_ENVS = {
+    "mvn": ("MAVEN_HOME", "M2_HOME"),
+    "gradle": ("GRADLE_HOME",),
+    "cargo": ("CARGO_HOME",),
+    "cmake": ("CMAKE_HOME",),
+    "ctest": ("CMAKE_HOME",),
+}
+
+# Common install directories that a GUI-launched app may not have on PATH.
+_COMMON_BIN_DIRS = (
+    "/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin", "/snap/bin",
+    "/opt/maven/bin", "/opt/gradle/bin", "/opt/apache-maven/bin",
+    os.path.expanduser("~/.cargo/bin"), os.path.expanduser("~/.sdkman/candidates/maven/current/bin"),
+    os.path.expanduser("~/.sdkman/candidates/gradle/current/bin"),
+)
+
+# Project-local build wrappers that need no system install of the tool.
+_WRAPPERS = {"mvn": "mvnw", "gradle": "gradlew"}
+
+
+def resolve_tool(name: str, workspace: Optional[Path] = None) -> Optional[str]:
+    """Locate a toolchain executable robustly.
+
+    Order: a project-local wrapper (``mvnw``/``gradlew``), then ``PATH``, then
+    ``<TOOL>_HOME/bin``, then common install directories. This handles the very
+    common case where the tool *is* installed but is not on the PATH inherited by
+    a desktop-launched Streamlit process.
+    """
+
+    # 1. Project-local wrapper (./mvnw, ./gradlew).
+    if workspace is not None:
+        wrapper = _WRAPPERS.get(name)
+        if wrapper:
+            wp = workspace / wrapper
+            if wp.is_file() and os.access(wp, os.X_OK):
+                return str(wp)
+
+    # 2. On PATH.
+    found = shutil.which(name)
+    if found:
+        return found
+
+    # 3. <TOOL>_HOME/bin.
+    for env in _TOOL_HOME_ENVS.get(name, ()):  # noqa: SIM110
+        base = os.environ.get(env)
+        if base:
+            cand = os.path.join(base, "bin", name)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+
+    # 4. Common install directories.
+    for d in _COMMON_BIN_DIRS:
+        cand = os.path.join(d, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
 
 def _run_external(workspace: Path, language: str, framework_id: str) -> Dict[str, object]:
     """Best-effort native test execution; skip cleanly if the toolchain is absent."""
@@ -147,23 +205,25 @@ def _run_external(workspace: Path, language: str, framework_id: str) -> Dict[str
     profile = get_language(language)
     framework = resolve_framework(language, framework_id)
     toolchain = framework.toolchain
+    tool_path = resolve_tool(toolchain, workspace) if toolchain else None
 
-    if not toolchain or shutil.which(toolchain) is None:
+    if tool_path is None:
         return {
             "status": "skipped",
             "total": 0,
             "passed": 0,
             "failed": 0,
             "detail": (
-                f"{profile.display} test toolchain ('{toolchain}') is not installed on "
-                f"this host, so the generated {framework.display} tests were not "
-                f"executed here. The project builds and tests on a machine with the "
-                f"toolchain available."
+                f"{profile.display} test toolchain ('{toolchain}') was not found on this "
+                f"host (checked PATH, {toolchain.upper()}_HOME and common install dirs), "
+                f"so the generated {framework.display} tests were not executed here. "
+                f"Install {toolchain} (or add it to PATH, or commit a project wrapper such "
+                f"as {_WRAPPERS.get(toolchain, 'the build wrapper')}) and the suite runs."
             ),
         }
 
     try:
-        commands = _command_sequence(language, framework_id, workspace)
+        commands = _command_sequence(language, framework_id, workspace, tool_path)
         last_out = ""
         for cmd in commands:
             proc = subprocess.run(
@@ -194,20 +254,24 @@ def _run_external(workspace: Path, language: str, framework_id: str) -> Dict[str
                 "detail": f"could not run native tests: {exc}"}
 
 
-def _command_sequence(language: str, framework_id: str, workspace: Path) -> List[List[str]]:
+def _command_sequence(language: str, framework_id: str, workspace: Path,
+                      tool: str = "") -> List[List[str]]:
     """Return the ordered shell commands to build + test a native project."""
 
     if language == "rust":
-        return [["cargo", "test"]]
+        return [[tool or "cargo", "test"]]
     if language == "java":
-        return [["mvn", "-q", "-B", "test"]]
+        # No -q: Surefire then prints the "Tests run: N" summary we parse.
+        return [[tool or "mvn", "-B", "test"]]
     if language == "kotlin":
-        return [["gradle", "test", "--console=plain"]]
+        return [[tool or "gradle", "test", "--console=plain"]]
     if language in ("c", "cpp"):
+        cmake = resolve_tool("cmake", workspace) or "cmake"
+        ctest = resolve_tool("ctest", workspace) or "ctest"
         return [
-            ["cmake", "-B", "build", "-S", "."],
-            ["cmake", "--build", "build"],
-            ["ctest", "--test-dir", "build", "--output-on-failure"],
+            [cmake, "-B", "build", "-S", "."],
+            [cmake, "--build", "build"],
+            [ctest, "--test-dir", "build", "--output-on-failure"],
         ]
     return []
 
