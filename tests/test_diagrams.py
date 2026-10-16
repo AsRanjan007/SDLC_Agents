@@ -77,9 +77,58 @@ def test_llm_sad_without_diagrams_gets_them_appended():
     assert _has_all_diagrams(sad)            # agent guaranteed them
     for heading in _DIAGRAM_HEADINGS:
         assert heading in sad
-    assert "generated diagrams" in res.metrics["source"]
+    assert "diagrams validated" in res.metrics["source"]
 
 
 def test_has_all_diagrams_detects_complete_suite():
     assert _has_all_diagrams(offline_engine.render_diagrams(_spec()) + " use case")
     assert not _has_all_diagrams("no diagrams here")
+
+
+# A SAD whose Mermaid reproduces the three real parse errors seen in the app.
+_BROKEN_LLM_SAD = """# Software Architecture Document
+
+## 6. Architecture Diagrams
+
+### 6.1 Overall Architecture Diagram
+```mermaid
+graph TD
+    A[User] --> D[Core Service (Business Logic)];
+```
+
+### 6.3 Data Flow Diagram (DFD)
+```mermaid
+graph TD
+    A[Raw Input: (A, Op, B)] --> B(Input Layer);
+```
+
+### 6.5 Use Case Diagram
+```mermaid
+graph TD
+    actor User
+    rectangle C
+```
+"""
+
+
+def test_sanitizer_replaces_broken_llm_mermaid_with_valid_blocks():
+    fixed = offline_engine.sanitize_llm_diagrams(_BROKEN_LLM_SAD, _spec())
+    # The invalid constructs are gone.
+    assert "D[Core Service (Business Logic)]" not in fixed
+    assert "Raw Input: (A, Op, B)" not in fixed
+    assert "rectangle C" not in fixed            # invented flowchart syntax
+    assert "graph TD\n    actor" not in fixed    # 'actor' is only valid in sequenceDiagram
+    # Replaced by valid, quoted deterministic diagrams + the missing types added.
+    assert fixed.count("```mermaid") == 5
+    assert "sequenceDiagram" in fixed
+    # No unquoted parentheses inside flowchart square-bracket labels remain
+    # (the cylinder shape `[("...")]` is excluded — it is valid Mermaid).
+    import re as _re
+    assert not _re.search(r"\[[^\"\]\n(]+\([^)\n]*\)[^\]\n]*\]", fixed)
+
+
+def test_sanitizer_appends_suite_when_no_mermaid_present():
+    doc = "# SAD\n\n## Overview\nSome prose only, no diagrams.\n"
+    fixed = offline_engine.sanitize_llm_diagrams(doc, _spec())
+    assert fixed.count("```mermaid") == 5
+    assert "## Architecture Diagrams" in fixed

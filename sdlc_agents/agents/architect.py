@@ -59,14 +59,11 @@ class ArchitectAgent(BaseAgent):
             doc = self._generate(_SYSTEM, prompt).strip()
             if len(doc) > 400 and doc.lower().count("#") >= 3:
                 source = f"LLM ({self.llm.name})"
-                # Ensure the diagram suite is present even if the model skipped it.
-                if want_diagrams and not _has_all_diagrams(doc):
-                    doc += (
-                        "\n\n## Architecture Diagrams\n"
-                        "*Diagram suite ensured by the Architect agent.*\n\n"
-                        + offline_engine.render_diagrams(spec)
-                    )
-                    source += " + generated diagrams"
+                # LLM Mermaid frequently fails to parse — swap every diagram for a
+                # known-good deterministic one (and append any missing type).
+                if want_diagrams:
+                    doc = offline_engine.sanitize_llm_diagrams(doc, spec)
+                    source += " (diagrams validated)"
             else:
                 doc = ""  # too thin -> fall back
         if not doc:
