@@ -60,7 +60,9 @@ def _operation_idents(spec: ProjectSpec) -> List[str]:
 
 
 def _now() -> str:
-    return _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    from ..util import now_str
+
+    return now_str()
 
 
 # ---------------------------------------------------------------------------

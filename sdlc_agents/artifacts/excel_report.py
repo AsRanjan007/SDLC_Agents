@@ -137,6 +137,17 @@ def build_validation_workbook(report: Dict) -> bytes:
         widths=[30, 18, 12, 50],
     )
 
+    # ---- DevMetrics sheet (Developer agent build/test report) ------------
+    dev_metrics = report.get("dev_metrics", [])
+    if dev_metrics:
+        add_table(
+            "DevMetrics",
+            ["Metric", "Value"],
+            [[r["metric"], r["value"]] for r in dev_metrics],
+            verdict_col=0,  # no verdict column
+            widths=[36, 44],
+        )
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

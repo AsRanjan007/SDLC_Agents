@@ -102,6 +102,16 @@ def render(config: AppConfig) -> AppConfig:
             "They execute when the language toolchain is installed; otherwise they are reported as skipped."
         )
 
+    config.timezone = st.text_input(
+        "Document timezone (IANA name, optional)",
+        value=config.timezone,
+        placeholder="e.g. Asia/Kolkata, America/New_York — blank uses the system local time",
+        help="Timestamps in the generated documents and reports use this timezone. "
+             "Set it when the app runs in a container whose clock is UTC.",
+    ).strip()
+    from ..util import now_str
+    st.caption(f"🕒 Current document timestamp: **{now_str(config.timezone)}**")
+
     # ---- Per-agent configuration ----------------------------------------
     st.subheader("4. Agent configuration")
     _render_agent_config(config)

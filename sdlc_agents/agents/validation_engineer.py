@@ -83,11 +83,12 @@ class ValidationEngineerAgent(BaseAgent):
 
         overall = _overall_verdict(functional, nonfunctional, architecture, tests, quality)
 
+        from ..util import now_str
         meta = {
             "title": spec.title,
             "run_id": ctx.run_id,
-            "generated": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "backend": (self.llm.name if self.llm else "offline"),
+            "generated": now_str(),
+            "backend": (self._llm_label() if self.llm else "offline"),
             "language": profile.display,
             "test_framework": framework.display,
             "fr_count": len(functional),
@@ -105,6 +106,7 @@ class ValidationEngineerAgent(BaseAgent):
             "architecture": architecture,
             "tests": tests,
             "quality": quality,
+            "dev_metrics": _dev_metrics(prior),
         }
 
         artifacts: List[Artifact] = []
@@ -321,6 +323,35 @@ def _overall_verdict(*groups: List[Dict]) -> str:
 # ---------------------------------------------------------------------------
 # small utilities
 # ---------------------------------------------------------------------------
+
+
+def _dev_metrics(prior: List[AgentResult]) -> List[Dict]:
+    """Collect the Developer agent's build/test metrics for the DevMetrics sheet."""
+
+    dev = next((r for r in prior if r.agent_id == "developer"), None)
+    if dev is None:
+        return []
+    labels = {
+        "language": "Target language",
+        "test_framework": "Unit-test framework",
+        "source": "Implementation source",
+        "code_files": "Source/build files",
+        "test_files": "Test modules",
+        "design_elements": "Design elements",
+        "test_status": "Test status",
+        "tests_passed": "Tests passed",
+        "tests_failed": "Tests failed",
+        "tests_total": "Tests total",
+        "static_findings": "Static-analysis findings",
+        "static_major_plus": "Static findings (major+)",
+        "coverage_overall": "Code coverage (overall %)",
+    }
+    rows: List[Dict] = []
+    for key, label in labels.items():
+        if key in dev.metrics:
+            val = dev.metrics[key]
+            rows.append({"metric": label, "value": "" if val is None else val})
+    return rows
 
 
 def _salient_terms(req: str) -> List[str]:

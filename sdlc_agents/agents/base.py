@@ -52,6 +52,11 @@ class BaseAgent:
     def _use_llm(self) -> bool:
         return self.llm is not None
 
+    def _llm_label(self) -> str:
+        """Friendly backend identifier (model/endpoint), tolerant of test doubles."""
+
+        return getattr(self.llm, "label", None) or getattr(self.llm, "name", "llm")
+
     def _generate(self, system: str, prompt: str) -> str:
         """Call the LLM; on any failure return '' so callers fall back offline."""
 

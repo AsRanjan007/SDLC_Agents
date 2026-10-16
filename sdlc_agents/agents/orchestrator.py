@@ -67,6 +67,9 @@ class Orchestrator:
         synthesize_audio: bool = True,
     ) -> RunResult:
         emit = on_event or (lambda *_: None)
+        # Make document timestamps use the user's configured timezone (or local).
+        from ..util import apply_timezone
+        apply_timezone(getattr(self.config, "timezone", ""))
         selected = [a for a in AGENT_ORDER if not selected_agents or a in selected_agents]
 
         spec = analyze(instruction, input_expectations, output_expectations, self.config.target_language)

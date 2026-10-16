@@ -22,6 +22,10 @@ class LlamaCppBackend(LLMBackend):
         self.cfg = cfg
         self._llm = None
 
+    @property
+    def label(self) -> str:
+        return os.path.basename(self.cfg.model_path) or "local GGUF"
+
     # ---- availability ----------------------------------------------------
 
     def available(self) -> tuple[bool, str]:
