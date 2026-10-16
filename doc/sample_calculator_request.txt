@@ -1,0 +1,48 @@
+DevCycle AI — Sample Workflow Request
+=====================================
+
+A ready-to-paste example for the Workflow page: a simple calculator that
+performs the four basic arithmetic operations (+, -, *, /).
+
+Copy each block below into the matching field on the Workflow page, then click
+"Run agentic flow".
+
+
+1. Instruction (what should the software do?)
+---------------------------------------------
+Build a calculator that performs the four basic arithmetic operations on two
+numbers: addition (+), subtraction (-), multiplication (*) and division (/).
+The user selects an operation and provides two operands. The calculator must
+validate the input, compute the result, and return it. Division by zero must be
+rejected with a clear error instead of crashing. Reject non-numeric operands and
+unsupported operators. It must run fully offline on an edge device and keep all
+data local and confidential.
+
+
+2. Input expectations
+---------------------
+Two numeric operands (integer or decimal) and one operator selected from
++, -, *, /. Example: operand_a = 12, operator = "/", operand_b = 4.
+Invalid input — non-numeric operands, an unsupported operator, or division by
+zero — must be detected and reported rather than causing a failure.
+
+
+3. Output expectations
+----------------------
+The computed numeric result for valid input (e.g. 12 / 4 -> 3), or a clear
+validation error message for invalid input. Deliverables: application code,
+design document, and a validation report.
+
+
+Tips
+----
+- Choose the target language and unit-test framework first in
+  Settings -> section 3 (e.g. Python/pytest, or Rust/cargo test). The Developer
+  agent generates the calculator and its unit tests in exactly that combination.
+- Keep all three agents selected (Software Architect -> Software Developer ->
+  Validation Engineer) to get the architecture document, code + tests, and the
+  Excel validation report.
+- The words "validate", "compute" and "add" are recognised as operations, so the
+  agents scaffold validate / compute / add (plus the generic process pipeline)
+  and write tests covering valid cases and the division-by-zero / invalid-operator
+  edge cases.
